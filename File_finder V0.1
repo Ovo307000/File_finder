@@ -1,0 +1,114 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+#include <time.h>
+
+const char* get_size_string(double size, char* buffer) {
+    if (size > 1024 * 1024) {
+        sprintf_s(buffer, 20, "%.2f MB", size / (1024 * 1024));
+    }
+    else if (size > 1024) {
+        sprintf_s(buffer, 20, "%.2f KB", size / 1024);
+    }
+    else {
+        sprintf_s(buffer, 20, "%.0f 字节", size);
+    }
+    return buffer;
+}
+
+
+const char* get_file_color(const char* file_name) {
+    const char* ext = strrchr(file_name, '.');
+
+    if (ext == NULL) {
+        return "\x1b[33m";  // Yellow for unknown file types
+    }
+
+    if (_stricmp(ext, ".txt") == 0) {
+        return "\x1b[34m";  // Blue for .txt files
+    }
+
+    if (_stricmp(ext, ".jpg") == 0 || _stricmp(ext, ".png") == 0) {
+        return "\x1b[35m";  // Magenta for image files
+    }
+
+    return "\x1b[36m";  // Cyan for other file types
+}
+
+void scan_folder(const char* folder_path, const char* parent_name, int depth, int scan_subfolders, DWORD* file_count, DWORD* folder_count) {
+    WIN32_FIND_DATAA find_data;
+    HANDLE h_find;
+    char search_path[MAX_PATH];
+    char child_path[MAX_PATH];
+    char indent[256] = { 0 };
+    char size_str[32];
+    SYSTEMTIME st;
+    char time_str[20];
+
+    snprintf(search_path, MAX_PATH, "%s\\*", folder_path);
+
+    h_find = FindFirstFileA(search_path, &find_data);
+    if (h_find == INVALID_HANDLE_VALUE) {
+        printf("扫描失败，请确认路径！ (%d)\n", GetLastError());
+        return;
+    }
+
+    do {
+        if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (strcmp(find_data.cFileName, ".") == 0 || strcmp(find_data.cFileName, "..") == 0) {
+                continue;
+            }
+
+            snprintf(child_path, MAX_PATH, "%s\\%s", folder_path, find_data.cFileName);
+            memset(indent, ' ', depth * 4);
+            indent[depth * 4] = '\0';
+            printf("%s\x1b[32m[文件夹] %s (父文件夹: %s)\x1b[0m\n", indent, find_data.cFileName, parent_name);
+            (*folder_count)++;
+
+            if (scan_subfolders) {
+                scan_folder(child_path, find_data.cFileName, depth + 1, scan_subfolders, file_count, folder_count);
+            }
+        }
+        else {
+            double file_size = (double)find_data.nFileSizeLow + ((double)find_data.nFileSizeHigh * (double)(1 << 31) * 2);
+            get_size_string(file_size, size_str);
+            memset(indent, ' ', depth * 4);
+            indent[depth * 4] = '\0';
+
+            FileTimeToSystemTime(&find_data.ftLastWriteTime, &st);
+            snprintf(time_str, 20, "%04d-%02d-%02d %02d:%02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+            printf("%s%s[文件] %s (%s) (最后修改时间: %s)%s\n", indent, get_file_color(find_data.cFileName), find_data.cFileName, size_str, time_str, "\x1b[0m");
+            (*file_count)++;
+        }
+    } while (FindNextFileA(h_find, &find_data));
+
+    FindClose(h_find);
+}
+
+int main() {
+    DWORD file_count = 0;
+    DWORD folder_count = 0;
+    clock_t start_time, end_time;
+
+    char user_path[MAX_PATH];
+    int scan_subfolders = 0;
+
+    printf("请输入要扫描的路径: ");
+    fgets(user_path, MAX_PATH, stdin);
+    user_path[strcspn(user_path, "\n")] = '\0'; // 去除末尾换行符
+
+    printf("是否扫描子文件夹？(输入1为是，0为否): ");
+    scanf_s("%d", &scan_subfolders);
+
+    start_time = clock();
+
+    scan_folder(user_path, "无", 0, scan_subfolders, &file_count, &folder_count);
+
+    end_time = clock();
+
+    printf("\n共扫描到 %u 个文件和 %u 个文件夹。\n", file_count, folder_count);
+    printf("耗时: %.2f 秒\n", (double)(end_time - start_time) / CLOCKS_PER_SEC);
+
+    return 0;
+}
